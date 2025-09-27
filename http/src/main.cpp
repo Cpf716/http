@@ -18,14 +18,14 @@ using namespace std;
 struct service {
     // Member Functions
 
-    std::string greeting(header::map& headers, class request request) {
+    std::string greeting(header::map headers, class request request) {
         url host(request.headers()["host"]);
 
         // Permanent Redirect
         return redirect(headers, 308, "http://" + host.host() + ":" + std::to_string(host.port().value() + 1) + request.url());
     }
 
-    std::string ping(header::map& headers) {
+    std::string ping(header::map headers) {
         std::string body = "Hello, world!";
 
         headers["Content-Type"] = std::string("text/plain; charset=utf-8");
@@ -43,10 +43,10 @@ class service service;
 
 // Non-Member Functions
 
-std::string handle_request(header::map& headers, class request request) {
+std::string handle_request(header::map headers, class request request) {
     // Optionally override default headers
     auto options = [](header::map headers) {
-        headers["Allow"] = std::string("OPTIONS, GET, HEAD, POST");
+        headers["Allow"] = { "OPTIONS", "GET", "HEAD", "POST" };
 
         return http::response(204, "No Content", "", headers);
     };
