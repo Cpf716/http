@@ -117,7 +117,7 @@ namespace http {
 
         // Constructors
 
-        request(const std::string method, class url url, header::map headers, const std::string body = "");
+        request(const std::string method, const std::string url, header::map headers, const std::string body = "");
 
         // Non-Member Functions
 

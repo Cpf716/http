@@ -123,8 +123,7 @@ int main(int argc, const char* argv[]) {
                             std::string response;
                             header::map headers = {
                                 { "Access-Control-Allow-Origin", "*" },
-                                { "Connection", "keep-alive" },
-                                { "Keep-Alive", "timeout=5" }
+                                { "Connection", "close" }
                             };
 
                             try {

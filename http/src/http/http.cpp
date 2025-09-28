@@ -57,10 +57,13 @@ namespace http {
         this->_set(value);
     }
 
-    request::request(const std::string method, class url url, header::map headers, const std::string body) {
+    request::request(const std::string method, const std::string url, header::map headers, const std::string body) {
         this->_method = method;
-        this->_url = url.target();
-        this->_params = url.params();
+
+        class url url_obj(url);
+
+        this->_url = url_obj.target();
+        this->_params = url_obj.params();
         this->_headers = headers;
         this->_body = body;
     }
@@ -242,7 +245,7 @@ namespace http {
             body = body.substr(0, std::min((int)body.length(), content_length));
         }
 
-        return request(method, url(target), headers, body);
+        return request(method, target, headers, body);
     }
 
     std::string redirect(header::map& headers, const size_t status, const std::string location) {
