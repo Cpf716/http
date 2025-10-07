@@ -18,19 +18,19 @@ using namespace std;
 struct service {
     // Member Functions
 
-    std::string greeting(header::map headers, class request request) {
+    string greeting(header::map headers, class request request) {
         url host(request.headers()["host"]);
 
         // Permanent Redirect
-        return redirect(headers, 308, "http://" + host.host() + ":" + std::to_string(host.port().value() + 1) + request.url());
+        return redirect(headers, 308, "http://" + host.host() + ":" + to_string(host.port().value() + 1) + request.url());
     }
 
-    std::string ping(header::map headers) {
-        std::string body = "Hello, world!";
+    string ping(header::map headers) {
+        string body = "Hello, world!";
 
-        headers["Content-Type"] = std::string("text/plain; charset=utf-8");
+        headers["Content-Type"] = string("text/plain; charset=utf-8");
 
-        return http::response(body, headers);
+        return response(body, headers);
     }
 };
 
@@ -43,12 +43,37 @@ class service service;
 
 // Non-Member Functions
 
-std::string handle_request(header::map headers, class request request) {
-    // Optionally override default headers
-    auto options = [](header::map headers) {
-        headers["Allow"] = { "OPTIONS", "GET", "HEAD", "POST" };
+// HTTP/1.1 default
+size_t keep_alive_timeout() {
+    return 5;
+}
 
-        return http::response(204, "No Content", "", headers);
+// Optional; assign a value < 0 to disable
+int keep_alive_max() {
+    return 200;
+}
+
+header::map headers() {
+    // Default response headers
+    header::map result = {
+        { "Access-Control-Allow-Origin", "*" },
+        { "Connection", "keep-alive" },
+    };
+    vector<string> keep_alive = { "timeout=" + to_string(keep_alive_timeout()) };
+
+    if (keep_alive_max() >= 1)
+        keep_alive.push_back("max=" + to_string(keep_alive_max()));
+
+    result["Keep-Alive"] = keep_alive;
+
+    return result;
+}
+
+string handle_request(header::map headers, class request request) {
+    auto options = [](header::map headers) {
+        headers["Access-Control-Allow-Origin"] = { "GET", "HEAD", "PUT", "PATCH", "POST", "DELETE" };
+
+        return response(204, "No Content", "", headers);
     };
     
     auto not_found = [request]() {
@@ -89,70 +114,106 @@ void onsignal(int signum) {
 }
 
 int main(int argc, const char* argv[]) {
-    signal(SIGINT, onsignal);
-    signal(SIGTERM, onsignal);
-
     server = new tcp_server(PORT, [](tcp_server::connection* connection) {
-        std::atomic<bool> recved = false;
-        
-        thread([&recved, connection]() {
-            try {
+        // Handle request in its own thread
+        thread([connection]() {
+            // Number of messages received
+            atomic<int> recvc = 0;
+
+            // Set connection timeout
+            thread([&recvc, connection]() {
                 size_t timeout = http::timeout();
 
-                std::thread([timeout, &recved, connection]() {
-                   for (size_t i = 0; i < timeout && !recved.load(); i++)
-                       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                for (size_t i = 0; i < timeout && !recvc.load(); i++)
+                    this_thread::sleep_for(chrono::milliseconds(1000));
 
-                   if (recved.load())
-                       return;
-
-                   recved.store(true);
-                   connection->close();
-                }).detach();
-
-                // Should the server listen for additional requests?
-                // while (true) {
-                    try {
-                        class request request = parse_request(connection->recv());
-
-                        recved.store(true);
-
-                        if (request.headers()["host"].str().length()) {
-                            log_request(request);
-                            
-                            std::string response;
-                            header::map headers = {
-                                { "Access-Control-Allow-Origin", "*" },
-                                { "Connection", "close" }
-                            };
-
-                            try {
-                                response = handle_request(headers, request);
-                            } catch (http::error& e) {
-                                response = http::response(e.status(), error_codes()[e.status()], e.what(), headers);
-                            }
-
-#if LOGGING == LEVEL_DEBUG
-                            cout << response << endl;
-#endif
-
-                            connection->send(response);
-                        }
-
-                        connection->close();
-                        // break;
-                    } catch (http::error& e) { }
-                // }
-            } catch (mysocket::error& e) {
-                 if (recved.load())
+                if (recvc.load())
                     return;
 
-                throw e;
+                recvc.store(1);
+                connection->close();
+            }).detach();
+
+            
+            // Wait for non-empty request
+            while (true) {
+                try {
+                    string request = connection->recv();
+
+                    if (request.empty())
+                        continue;
+
+                    recvc.fetch_add(1);
+
+                    auto handle_response = [connection](const string response) {
+#if LOGGING == LEVEL_DEBUG
+                        cout << response << endl;
+#endif
+
+                        connection->send(response);
+                    };
+
+                    try {
+                        class request request_obj = parse_request(request);
+
+                        if (request_obj.headers()["host"].str().length()) {
+                            log_request(request_obj);
+
+                            try {
+                                string response = handle_request(headers(), request_obj);
+
+                                handle_response(response);
+
+                                int last_id = recvc.load();
+
+                                if (last_id >= keep_alive_max()) {
+                                    connection->close();
+                                    break;
+                                }
+
+                                // Keep alive
+                                thread([&recvc, last_id, connection]() {
+                                    for (int i = 0; i < keep_alive_timeout() && recvc.load() == last_id; i++) 
+                                        this_thread::sleep_for(chrono::milliseconds(1000));
+
+                                    if (recvc.load() == last_id)
+                                        connection->close();
+                                }).detach();
+                            } catch (http::error& e) {
+                                handle_response(response(e.status(), e.status_text(), e.text(), headers()));
+                            }
+                        } else {
+                            handle_response(response(400, "Bad Request", to_string(0), {
+                                { "Connection", "close" },
+                                { "Transfer-Encoding", "chunked "}   
+                            }));
+
+                            connection->close();
+                            break;
+                        }
+                    } catch (http::error& e) {
+                        handle_response(response(400, "Bad Request", e.text(), {
+                            { "Connection", "close" }
+                        }, false));
+                
+                        connection->close();
+                        break;
+                    }
+                } catch (mysocket::error& e) {
+                    // Connection timed out; suppress error
+                    if (recvc.load())
+                        return;
+
+                    throw e;
+                }
             }
         }).detach();
     });
 
-    std::cout << "Server listening on port " << PORT << "...\n";
+    signal(SIGINT, onsignal);
+    signal(SIGTERM, onsignal);
+
+    cout << "Server listening on port " << PORT << "...\n";
 
     while (true)
         continue;

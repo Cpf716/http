@@ -7,13 +7,14 @@
 
 #include "url.h"
 
-// Non-Member Fields
+// Non-Member Functions
 
-// Constant
-std::map<std::string, int> PROTOCOLS = {
-    { "http", 80 },
-    { "https", 443 }
-};
+std::map<std::string, int> protocols() {
+    return {
+        { "http", 80 },
+        { "https", 443 }
+    };
+}
 
 // Constructors
 
@@ -82,7 +83,7 @@ url::url(const std::string value) {
     this->_host = host[0];
 
     if (host.size() == 1) {
-        this->port() = portinfo((PROTOCOLS)[this->protocol()], false);
+        this->port() = portinfo(protocols()[this->protocol()], false);
     } else
         this->port() = portinfo(parse_int(host[1]), true);
 
@@ -193,46 +194,37 @@ int& url::portinfo::value() {
 }
 
 double url::param::_set(const double value) {
-    this->_parsed = true;
     this->_number = value;
+    this->_str = std::to_string(this->number());
+    this->_list = { this->str() };
 
-    this->_set(std::to_string(this->_number));
-    this->_list.push_back(this->str());
-
-    return this->_number;
+    return this->number();
 }
 
 std::string url::param::_set(const std::string value) {
     this->_str = value;
+    this->_number = parse_number(this->str());
+    this->_list = split(this->str(), ",");
+
+    for (size_t i = 0; i < this->_list.size(); i++)
+        this->_list[i] = trim(this->_list[i]);
 
     return this->str();
 }
 
 std::vector<std::string> url::param::_set(const std::vector<std::string> value) {
     this->_list = value;
-    
-    this->_set(join(value, ","));
+    this->_str = join(value, ",");
+    this->_number = NAN;
 
+    return this->list();
+}
+
+std::vector<std::string> url::param::list() const {
     return this->_list;
 }
 
-std::vector<std::string> url::param::list() {
-    if (this->_list.size() == 0) {
-        split(this->_list, this->str(), ",");
-
-        for (size_t i = 0; i < this->_list.size(); i++)
-            this->_list[i] = trim(this->_list[i]);
-    }
-
-    return this->_list;
-}
-
-double url::param::number() {
-    if (!this->_parsed) {
-        this->_number = parse_number(this->str());
-        this->_parsed = true;
-    }
-
+double url::param::number() const {
     return this->_number;
 }
 
