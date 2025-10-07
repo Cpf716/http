@@ -77,9 +77,9 @@ struct url {
 
         // Member Functions
 
-        std::vector<std::string> list();
+        std::vector<std::string> list() const;
 
-        double                   number();
+        double                   number() const;
 
         std::string              str() const;
     private:
@@ -87,7 +87,6 @@ struct url {
 
         std::vector<std::string> _list;
         double                   _number;
-        bool                     _parsed = false;
         std::string              _str;
 
         // Member Functions

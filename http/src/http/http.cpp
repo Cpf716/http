@@ -9,32 +9,151 @@
 
 namespace http {
     // Non-Member Fields
+    
+    // Seconds
+    const std::atomic<size_t> TIMEOUT = 30;
 
-    // Constant
-    std::map<int, std::string> REDIRECT_CODES = {
-        { 302, "Found" },
-        { 307, "Temporary Redirect" },
-        { 308, "Permanent Redirect" }
-    };
-    const std::string          HTTP_VERSION = "HTTP/1.1";
+    // Non-Member Functions
 
-    std::map<int, std::string> _error_codes = {
-        { 0, "Unknown error" },
-        { 404, "Not Found" },
-        { 500, "Internal Server Error"}
-    };
-    size_t                     _timeout = 30;
+    std::map<size_t, std::string> error_codes() {
+        return {
+            { 0, "Unknown error" },
+            { 400, "Bad Request" },
+            { 401, "Unauthorized" },
+            { 404, "Not Found" },
+            { 500, "Internal Server Error"}
+        };
+    }
+
+    std::string http_version() {
+        return "HTTP/1.1";
+    }
+
+    request parse_request(const std::string message) {
+#if LOGGING == LEVEL_DEBUG
+        std::cout << message << std::endl;
+#endif
+
+        std::istringstream iss(message);
+        std::string        str;
+
+        getline(iss, str);
+
+        std::vector<std::string> tokens = ::tokens(str);
+
+        // Bad Request
+        if (!(tokens.size() == 3 && tokens[2] == http_version()))
+            throw http::error(400);
+
+        std::string method = tolowerstr(tokens[0]);
+        std::string target = tokens[1];
+        header::map headers;
+
+        while (getline(iss, str)) {
+            std::vector<std::string> header = split(str, ":");
+
+            if (header.size() == 1)
+                break;
+
+            headers[tolowerstr(header[0])] = trim(str.substr(header[0].length() + 1));
+        }
+
+        int         content_length = headers["content-length"];
+        std::string body = "";
+
+        if (content_length != INT_MIN) {
+            std::vector<std::string> value;
+
+            while (getline(iss, str))
+                value.push_back(trim_end(str));
+
+            body = join(value, "\r\n");
+            body = body.substr(0, std::min((int)body.length(), content_length));
+        }
+
+        return request(method, target, headers, body);
+    }
+
+    std::map<int, std::string> redirect_codes() {
+        return {
+            { 302, "Found" },
+            { 307, "Temporary Redirect" },
+            { 308, "Permanent Redirect" }
+        };
+    }
+
+    std::string redirect(header::map& headers, const size_t status, const std::string location) {
+        headers["Location"] = location;
+
+        std::string status_text = redirect_codes()[(int)status];
+
+        return response(status, status_text, status_text + ". Redirecting to " + location, headers);
+    }
+
+    std::string redirect(header::map& headers, const std::string location) {
+        return redirect(headers, 302, location);
+    }
+
+    std::string response(const std::string text, header::map headers) {
+        return response(200, "OK", text, headers);
+    }
+
+    std::string response(const size_t status, const std::string status_text, const std::string text, header::map headers, const bool date) {
+        std::ostringstream oss(http_version() + " ");
+
+        oss.seekp(0, std::ios::end);
+
+        oss << std::to_string(status) << " " << status_text << "\r\n";
+
+        // Response headers
+        if (date) {
+            time_t now = time(0);
+            tm*    gmtm = gmtime(&now);
+            char*  dt = asctime(gmtm);
+            
+            std::vector<std::string> tokens = ::tokens(std::string(dt));
+
+            oss << "Date" << ": ";
+
+            std::string day = tokens[0],
+                        month = tokens[1],
+                        date = tokens[2],
+                        time = tokens[3],
+                        year = tokens[4];
+
+            oss << day << ", " << date << " " << month << " " << year << " " << time << " GMT\r\n";
+        }
+
+        for (const auto& [key, value]: headers)
+            oss << key << ": " << value.str() << "\r\n";
+        
+        if (text.length()) {
+            if (headers["Transfer-Encoding"].str().empty())
+                oss << "Content-Length: " << text.length() << "\r\n";
+
+            oss << "\r\n";
+            oss << text << "\r\n";
+        }
+        
+        return oss.str();
+    }
+
+    size_t timeout() {
+        return TIMEOUT.load();
+    }
 
     // Constructors
 
-    error::error(const std::string what) {
-        this->_status = 0;
-        this->_what = what;
+    error::error(const size_t status) {
+        this->_status = status;
+        this->_status_text = error_codes()[this->status()];
+        this->_text = "";
     }
 
-    error::error(const size_t status, const std::string what) {
+    error::error(const size_t status, const std::string text) {
         this->_status = status;
-        this->_what = what;
+        this->_status_text = error_codes()[this->status()];
+        this->_text = text;
     }
 
     header::header() {
@@ -129,25 +248,28 @@ namespace http {
     // Member Functions
 
     int header::_set(const int value) {
-        this->_parsed = true;
         this->_int = value;
+        this->_str = std::to_string(this->int_value());
+        this->_list = { this->str() };
 
-        this->_set(std::to_string(this->_int));
-        this->_list.push_back(this->str());
-
-        return this->_int;
+        return this->int_value();
     }
 
     std::string header::_set(const std::string value) {
         this->_str = value;
+        this->_int = parse_int(this->str());
+        this->_list = split(value, ",");
+
+        for (size_t i = 0; i < this->_list.size(); i++)
+            this->_list[i] = trim(this->_list[i]);
 
         return this->str();
     }
 
     std::vector<std::string> header::_set(const std::vector<std::string> value) {
         this->_list = value;
-        
-        this->_set(join(this->list(), ", "));
+        this->_str = join(this->list(), ", ");
+        this->_int = INT_MIN;
 
         return this->list();
     }
@@ -160,12 +282,7 @@ namespace http {
         return this->_headers;
     }
 
-    int header::int_value() {
-        if (!this->_parsed) {
-            this->_int = parse_int(this->str());
-            this->_parsed = true;
-        }
-
+    int header::int_value() const {
         return this->_int;
     }
 
@@ -185,8 +302,16 @@ namespace http {
         return this->_status;
     }
 
+    std::string error::status_text() const {
+        return this->_status_text;
+    }
+
     std::string header::str() const {
         return this->_str;
+    }
+
+    std::string error::text() const {
+        return this->_text;
     }
 
     std::string request::url() const {
@@ -194,113 +319,6 @@ namespace http {
     }
 
     const char* error::what() const throw() {
-        return this->_what.c_str();
-    }
-
-    // Non-Member Functions
-
-    std::map<int, std::string> error_codes() {
-        return _error_codes;
-    }
-
-    request parse_request(const std::string message) {
-#if LOGGING == LEVEL_DEBUG
-        std::cout << message << std::endl;
-#endif
-
-        std::istringstream iss(message);
-        std::string        str;
-
-        if (!getline(iss, str))
-            throw http::error("Empty message");
-
-        std::vector<std::string> tokens = ::tokens(str);
-
-        if (!(tokens.size() == 3 && tokens[2] == HTTP_VERSION))
-            throw http::error("Start line is required");
-
-        std::string method = tolowerstr(tokens[0]);
-        std::string target = tokens[1];
-        header::map headers;
-
-        while (getline(iss, str)) {
-            std::vector<std::string> header = split(str, ":");
-
-            if (header.size() == 1)
-                break;
-
-            headers[tolowerstr(header[0])] = trim(str.substr(header[0].length() + 1));
-        }
-
-        int         content_length = headers["content-length"];
-        std::string body = "";
-
-        if (content_length != INT_MIN) {
-            std::vector<std::string> value;
-
-            while (getline(iss, str))
-                value.push_back(trim_end(str));
-
-            body = join(value, "\r\n");
-            body = body.substr(0, std::min((int)body.length(), content_length));
-        }
-
-        return request(method, target, headers, body);
-    }
-
-    std::string redirect(header::map& headers, const size_t status, const std::string location) {
-        headers["Location"] = location;
-
-        std::string status_text = REDIRECT_CODES[(int)status];
-
-        return response(status, status_text, status_text + ". Redirecting to " + location, headers);
-    }
-
-    std::string redirect(header::map& headers, const std::string location) {
-        return redirect(headers, 302, location);
-    }
-
-    std::string response(const std::string text, header::map headers) {
-        return response(200, "OK", text, headers);
-    }
-
-    std::string response(const size_t status, const std::string status_text, const std::string text, header::map headers) {
-        std::ostringstream oss(HTTP_VERSION + " ");
-
-        oss.seekp(0, std::ios::end);
-
-        oss << std::to_string(status) << " " << status_text << "\r\n";
-
-        // Response headers
-        time_t now = time(0);
-        tm*    gmtm = gmtime(&now);
-        char*  dt = asctime(gmtm);
-        
-        std::vector<std::string> tokens = ::tokens(std::string(dt));
-
-        oss << "Date" << ": ";
-
-        std::string day = tokens[0],
-                    month = tokens[1],
-                    date = tokens[2],
-                    time = tokens[3],
-                    year = tokens[4];
-
-        oss << day << ", " << date << " " << month << " " << year << " " << time << " GMT\r\n";
-
-        for (const auto& [key, value]: headers)
-            oss << key << ": " << value.str() << "\r\n";
-        
-        if (text.length()) {
-            oss << "Content-Length: " << text.length() << "\r\n";
-            oss << "\r\n";
-            oss << text << "\r\n";
-        }
-        
-        return oss.str();
-    }
-
-    size_t& timeout() {
-        return _timeout;
+        return this->_text.c_str();
     }
 }

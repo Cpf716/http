@@ -18,21 +18,25 @@ namespace http {
     struct error: public std::exception {
         // Constructors
 
-        error(const std::string what);
+        error(const size_t status);
 
-        error(const size_t status, const std::string what);
+        error(const size_t status, const std::string text);
 
         // Member Fields
 
         size_t      status() const;
+
+        std::string status_text() const;
+
+        std::string text() const;
 
         const char* what() const throw();
     private:
         // Member Fields
 
         size_t      _status;
-
-        std::string _what;
+        std::string _status_text;
+        std::string _text;
     };
 
     struct header {
@@ -84,7 +88,7 @@ namespace http {
 
         // Member Functions
 
-        int                      int_value();
+        int                      int_value() const;
 
         std::vector<std::string> list() const;
 
@@ -94,7 +98,6 @@ namespace http {
 
         int                      _int;
         std::vector<std::string> _list;
-        bool                     _parsed = false;
         std::string              _str;
 
         // Member Functions
@@ -106,23 +109,11 @@ namespace http {
         std::vector<std::string> _set(const std::vector<std::string> value);
     };
 
-    class request {
-        // Member Fields
-
-        std::string     _body;
-        header::map     _headers;
-        std::string     _method;
-        url::param::map _params;
-        std::string     _url;
-
+    struct request {
         // Constructors
 
-        request(const std::string method, const std::string url, header::map headers, const std::string body = "");
+        request(const std::string method, const std::string url, header::map headers = {}, const std::string body = "");
 
-        // Non-Member Functions
-
-        friend request parse_request(const std::string text);
-    public:
         // Member Functions
 
         std::string     body() const;
@@ -134,11 +125,19 @@ namespace http {
         url::param::map params();
 
         std::string     url() const;
+    private:
+        // Member Fields
+
+        std::string     _body;
+        header::map     _headers;
+        std::string     _method;
+        url::param::map _params;
+        std::string     _url;
     };
 
     // Non-Member Functions
 
-    std::map<int, std::string> error_codes();
+    std::string                http_version();
 
     request                    parse_request(const std::string text);
 
@@ -148,9 +147,9 @@ namespace http {
 
     std::string                response(const std::string text, header::map headers);
 
-    std::string                response(const size_t status, const std::string status_text, const std::string text, header::map headers);
+    std::string                response(const size_t status, const std::string status_text, const std::string text, header::map headers, const bool date = true);
 
-    size_t&                    timeout();
+    size_t                     timeout();
 }
 
 #endif /* http_h */

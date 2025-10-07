@@ -2,7 +2,7 @@
 
 Thanks for checking out my C++ HTTP server!
 
-It is a crude implementation of the HTTP protocol down to the socket layer which provides C++ developers with a running start on low-level API integration, whether for the cutting-edge performance of the language and/or due to hardware limitations
+It is a crude implementation of the HTTP protocol down to the socket layer. While more powerful and widely adopted implementations exist, this one gives you an opportunity to see the protocol in action at a low level.
 
 ## Requirements
 
