@@ -85,6 +85,10 @@ header::map headers() {
     return temp;
 }
 
+void log_request(class request request) {
+    cout << "url: " << request.url() << ", body: " << (request.body().empty() ? "null" : request.body()) << endl;
+}
+
 string handle_request(header::map headers, class request request) {
     auto options = [](header::map headers) {
         headers["Access-Control-Allow-Methods"] = allow();
@@ -101,8 +105,11 @@ string handle_request(header::map headers, class request request) {
         if (request.method() == "options")
             return options(headers);
 
-        if (request.method() == "get")
+        if (request.method() == "get") {
+            log_request(request);
+            
             return _service.ping(headers);
+        }
 
         return not_found();
     }
@@ -111,8 +118,11 @@ string handle_request(header::map headers, class request request) {
         if (request.method() == "options")
             return options(headers);
 
-        if (request.method() == "post")
+        if (request.method() == "post") {
+            log_request(request);
+
             return _service.greeting(headers, request);
+        }
 
         return not_found();
     }
@@ -128,10 +138,6 @@ void initialize() {
         ka.push_back(join({ "max", to_string(keep_alive_max()) }, "="));
 
     _headers["Keep-Alive"] = join(ka, ",");
-}
-
-void log_request(class request request) {
-    cout << "url: " << request.url() << ", body: " << (request.body().empty() ? "null" : request.body()) << endl;
 }
 
 // Perform garbage collection
@@ -157,7 +163,7 @@ int main(int argc, const char* argv[]) {
     else {
         port = parse_int(argv[1]);
 
-        if (port <= 3000)
+        if (port < 3000)
             port = PORT;
     }   
 
@@ -246,8 +252,6 @@ int main(int argc, const char* argv[]) {
                                         
                                         if (allow.find(method) == allow.end())
                                             throw http::error(400);
-
-                                        log_request(request_obj);
                                             
                                         if (next())
                                             break;
@@ -291,12 +295,10 @@ int main(int argc, const char* argv[]) {
             break;
         } catch (mysocket::error& e) {
             // EADDRINUSE
-            if (e.errnum() == 48) {
+            if (e.errnum() == 48)
                 port++;
-                continue;
-            }
-
-            throw e;
+            else
+                throw e;
         }
     }
 }
