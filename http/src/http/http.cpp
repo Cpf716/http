@@ -28,6 +28,14 @@ namespace http {
         return 30;
     }
 
+    std::map<int, std::string> redirect_codes() {
+        return {
+            { 302, "Found" },
+            { 307, "Temporary Redirect" },
+            { 308, "Permanent Redirect" }
+        };
+    }
+
     request parse_request(const std::string message) {
 #if LOGGING == LEVEL_DEBUG
         std::cout << message << std::endl;
@@ -73,14 +81,6 @@ namespace http {
         return request(method, target, headers, body);
     }
 
-    std::map<int, std::string> redirect_codes() {
-        return {
-            { 302, "Found" },
-            { 307, "Temporary Redirect" },
-            { 308, "Permanent Redirect" }
-        };
-    }
-
     std::string redirect(header::map& headers, const size_t status, const std::string location) {
         headers["Location"] = location;
 
@@ -120,18 +120,22 @@ namespace http {
                         time = tokens[3],
                         year = tokens[4];
 
-            oss << day << ", " << date << " " << month << " " << year << " " << time << " GMT\r\n";
+            oss << day << ", " << date << " " << month << " " << year << " " << time << " GMT";
         }
 
-        for (const auto& [key, value]: headers)
-            oss << key << ": " << value.str() << "\r\n";
+        for (const auto& [key, value]: headers) {
+            oss << "\r\n";
+            oss << key << ": " << value.str();
+        }
         
         if (text.length()) {
-            if (headers["Transfer-Encoding"].str().empty())
-                oss << "Content-Length: " << text.length() << "\r\n";
+            if (headers["Transfer-Encoding"].str().empty()) {
+                oss << "\r\n";
+                oss << "Content-Length: " << text.length();
+            }
 
-            oss << "\r\n";
-            oss << text << "\r\n";
+            oss << "\r\n\r\n";
+            oss << text;
         }
         
         return oss.str();

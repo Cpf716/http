@@ -120,12 +120,13 @@ string handle_request(header::map headers, class request request) {
 }
 
 void initialize() {
-    set<string> ka = { "timeout=" + to_string(keep_alive_timeout()) };
+    // Preserve comma-separated header values' order
+    vector<string> ka = { join({ "timeout", to_string(keep_alive_timeout()) }, "=") };
 
     if (keep_alive_max() > 0)
-        ka.insert("max=" + to_string(keep_alive_max()));
+        ka.push_back(join({ "max", to_string(keep_alive_max()) }, "="));
 
-    _headers["Keep-Alive"] = ka;
+    _headers["Keep-Alive"] = join(ka, ",");
 }
 
 void log_request(class request request) {
@@ -183,8 +184,6 @@ int main(int argc, const char* argv[]) {
 
                         if (request_obj.headers()["host"].str().length()) {
                             auto next = [&]() {
-                                log_request(request_obj);
-
                                 try {
                                     string response = handle_request(headers(), request_obj);
 
@@ -221,20 +220,18 @@ int main(int argc, const char* argv[]) {
                             } else {
                                 set<string> allow = ::allow();
                                 
-                                if (allow.find(method) == allow.end()) {
-                                    handle_response(response(400, "Bad Request", "", {
-                                        { "Connection", "close" }
-                                    }, false));
+                                if (allow.find(method) == allow.end())
+                                    throw http::error(400);
 
-                                    connection->close();
-                                    break;
-                                } else if (next())
+                                log_request(request_obj);
+                                    
+                                if (next())
                                     break;
                             }
                         } else {
                             handle_response(response(400, "Bad Request", to_string(0), {
                                 { "Connection", "close" },
-                                { "Transfer-Encoding", "chunked "}   
+                                { "Transfer-Encoding", "chunked "}
                             }));
 
                             connection->close();
