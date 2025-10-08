@@ -221,20 +221,16 @@ int main(int argc, const char* argv[]) {
                             } else {
                                 set<string> allow = ::allow();
                                 
-                                if (allow.find(method) == allow.end()) {
-                                    handle_response(response(400, "Bad Request", "", {
-                                        { "Connection", "close" }
-                                    }, false));
-
-                                    connection->close();
-                                    break;
-                                } else if (next())
+                                if (allow.find(method) == allow.end())
+                                    throw http::error(400);
+                                    
+                                if (next())
                                     break;
                             }
                         } else {
                             handle_response(response(400, "Bad Request", to_string(0), {
                                 { "Connection", "close" },
-                                { "Transfer-Encoding", "chunked "}   
+                                { "Transfer-Encoding", "chunked "}
                             }));
 
                             connection->close();
