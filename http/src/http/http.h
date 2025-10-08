@@ -1,6 +1,6 @@
 //
 //  http.h
-//  socket
+//  http
 //
 //  Created by Corey Ferguson on 9/24/25.
 //
@@ -11,6 +11,7 @@
 #include "url.h"
 #include "util.h"
 #include <cmath>
+#include <set>
 
 namespace http {
     // Typedef
@@ -54,59 +55,59 @@ namespace http {
 
         header(const std::string value);
 
-        header(const std::vector<std::string> value);
+        header(std::set<std::string> value);
 
         // Operators
 
-        operator                 int();
+        operator              int();
 
-        operator                 std::string();
+        operator              std::string();
 
-        operator                 std::vector<std::string>();
+        operator              std::set<std::string>();
 
-        int                      operator=(const int value);
+        int                   operator=(const int value);
 
-        std::string              operator=(const std::string value);
+        std::string           operator=(const std::string value);
 
-        std::vector<std::string> operator=(const std::vector<std::string> value);
+        std::set<std::string> operator=(std::set<std::string> value);
 
-        bool                     operator==(const char* value);
+        bool                  operator==(const char* value);
 
-        bool                     operator==(const int value);
+        bool                  operator==(const int value);
 
-        bool                     operator==(const std::string value);
+        bool                  operator==(const std::string value);
 
-        bool                     operator==(const header value);
+        bool                  operator==(const header value);
 
-        bool                     operator!=(const char* value);
+        bool                  operator!=(const char* value);
 
-        bool                     operator!=(const int value);
+        bool                  operator!=(const int value);
 
-        bool                     operator!=(const std::string value);
+        bool                  operator!=(const std::string value);
 
-        bool                     operator!=(const header value);
+        bool                  operator!=(const header value);
 
         // Member Functions
 
-        int                      int_value() const;
+        int                   int_value() const;
 
-        std::vector<std::string> list() const;
+        std::set<std::string> list();
 
-        std::string              str() const;
+        std::string           str() const;
     private:
         // Member Fields
 
-        int                      _int;
-        std::vector<std::string> _list;
-        std::string              _str;
+        int                   _int;
+        std::set<std::string> _list;
+        std::string           _str;
 
         // Member Functions
 
-        int                      _set(const int value);
+        int                   _set(const int value);
 
-        std::string              _set(const std::string value);
+        std::string           _set(const std::string value);
 
-        std::vector<std::string> _set(const std::vector<std::string> value);
+        std::set<std::string> _set(std::set<std::string> value);
     };
 
     struct request {
@@ -137,19 +138,19 @@ namespace http {
 
     // Non-Member Functions
 
-    std::string                http_version();
+    std::string http_version();
 
-    request                    parse_request(const std::string text);
+    request     parse_request(const std::string text);
 
-    std::string                redirect(header::map& headers, const std::string location);
+    std::string redirect(header::map& headers, const std::string location);
 
-    std::string                redirect(header::map& headers, const size_t status, const std::string location);
+    std::string redirect(header::map& headers, const size_t status, const std::string location);
 
-    std::string                response(const std::string text, header::map headers);
+    std::string response(const std::string text, header::map headers);
 
-    std::string                response(const size_t status, const std::string status_text, const std::string text, header::map headers, const bool date = true);
+    std::string response(const size_t status, const std::string status_text, const std::string text, header::map headers, const bool date = true);
 
-    size_t                     timeout();
+    size_t      timeout();
 }
 
 #endif /* http_h */
