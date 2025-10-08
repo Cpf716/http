@@ -1,6 +1,6 @@
 //
 //  http.cpp
-//  socket
+//  http
 //
 //  Created by Corey Ferguson on 9/24/25.
 //
@@ -8,11 +8,6 @@
 #include "http.h"
 
 namespace http {
-    // Non-Member Fields
-    
-    // Seconds
-    const std::atomic<size_t> TIMEOUT = 30;
-
     // Non-Member Functions
 
     std::map<size_t, std::string> error_codes() {
@@ -27,6 +22,10 @@ namespace http {
 
     std::string http_version() {
         return "HTTP/1.1";
+    }
+
+    size_t timeout() {
+        return 30;
     }
 
     request parse_request(const std::string message) {
@@ -138,10 +137,6 @@ namespace http {
         return oss.str();
     }
 
-    size_t timeout() {
-        return TIMEOUT.load();
-    }
-
     // Constructors
 
     error::error(const size_t status) {
@@ -172,7 +167,7 @@ namespace http {
         this->_set(value);
     }
 
-    header::header(const std::vector<std::string> value) {
+    header::header(std::set<std::string> value) {
         this->_set(value);
     }
 
@@ -197,7 +192,7 @@ namespace http {
         return this->str();
     }
 
-    header::operator std::vector<std::string>() {
+    header::operator std::set<std::string>() {
         return this->list();
     }
 
@@ -209,7 +204,7 @@ namespace http {
         return this->_set(value);
     }
 
-    std::vector<std::string> header::operator=(const std::vector<std::string> value) {
+    std::set<std::string> header::operator=(std::set<std::string> value) {
         return this->_set(value);
     }
 
@@ -258,17 +253,24 @@ namespace http {
     std::string header::_set(const std::string value) {
         this->_str = value;
         this->_int = parse_int(this->str());
-        this->_list = split(value, ",");
-
-        for (size_t i = 0; i < this->_list.size(); i++)
-            this->_list[i] = trim(this->_list[i]);
+        
+        this->_list.clear();
+        
+        for (std::string item: split(value, ","))
+            this->_list.insert(trim(item));
 
         return this->str();
     }
 
-    std::vector<std::string> header::_set(const std::vector<std::string> value) {
+    std::set<std::string> header::_set(std::set<std::string> value) {
         this->_list = value;
-        this->_str = join(this->list(), ", ");
+        
+        std::vector<std::string> list;
+        
+        for (std::string item: this->list())
+            list.push_back(item);
+        
+        this->_str = join(list, ",");
         this->_int = INT_MIN;
 
         return this->list();
@@ -286,7 +288,7 @@ namespace http {
         return this->_int;
     }
 
-    std::vector<std::string> header::list() const {
+    std::set<std::string> header::list() {
         return this->_list;
     }
 

@@ -1,6 +1,6 @@
 //
 //  properties.h
-//  socket
+//  http
 //
 //  Created by Corey Ferguson on 9/24/25.
 //

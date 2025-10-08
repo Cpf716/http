@@ -36,10 +36,17 @@ struct service {
 
 // Non-Member Fields
 
-const size_t  PORT = 8080;
+const size_t PORT = 8080;
 
-tcp_server*   server = NULL;
-class service service;
+set<string> _allow = { "GET", "HEAD", "PUT", "PATCH", "POST", "DELETE" };
+header::map _headers = {
+    { "Access-Control-Allow-Origin", "*" },
+    { "Connection", "keep-alive" },
+    { "Keep-Alive", "" }
+};
+mutex       _mutex;
+tcp_server* _server = NULL;
+service     _service;
 
 // Non-Member Functions
 
@@ -53,25 +60,33 @@ int keep_alive_max() {
     return 200;
 }
 
+set<string> allow() {
+    set<string> temp;
+
+    _mutex.lock();
+
+    temp = _allow;
+
+    _mutex.unlock();
+
+    return temp;
+}
+
 header::map headers() {
-    // Default response headers
-    header::map result = {
-        { "Access-Control-Allow-Origin", "*" },
-        { "Connection", "keep-alive" },
-    };
-    vector<string> keep_alive = { "timeout=" + to_string(keep_alive_timeout()) };
+    header::map temp;
 
-    if (keep_alive_max() >= 1)
-        keep_alive.push_back("max=" + to_string(keep_alive_max()));
+    _mutex.lock();
 
-    result["Keep-Alive"] = keep_alive;
+    temp = _headers;
 
-    return result;
+    _mutex.unlock();
+
+    return temp;
 }
 
 string handle_request(header::map headers, class request request) {
     auto options = [](header::map headers) {
-        headers["Access-Control-Allow-Origin"] = { "GET", "HEAD", "PUT", "PATCH", "POST", "DELETE" };
+        headers["Access-Control-Allow-Methods"] = allow();
 
         return response(204, "No Content", "", headers);
     };
@@ -86,7 +101,7 @@ string handle_request(header::map headers, class request request) {
             return options(headers);
 
         if (request.method() == "get")
-            return service.ping(headers);
+            return _service.ping(headers);
 
         return not_found();
     }
@@ -96,12 +111,21 @@ string handle_request(header::map headers, class request request) {
             return options(headers);
 
         if (request.method() == "post")
-            return service.greeting(headers, request);
+            return _service.greeting(headers, request);
 
         return not_found();
     }
 
     return not_found();
+}
+
+void initialize() {
+    set<string> ka = { "timeout=" + to_string(keep_alive_timeout()) };
+
+    if (keep_alive_max() > 0)
+        ka.insert("max=" + to_string(keep_alive_max()));
+
+    _headers["Keep-Alive"] = ka;
 }
 
 void log_request(class request request) {
@@ -110,31 +134,32 @@ void log_request(class request request) {
 
 // Perform garbage collection
 void onsignal(int signum) {
-    server->close();
+    _server->close();
 }
 
 int main(int argc, const char* argv[]) {
-    server = new tcp_server(PORT, [](tcp_server::connection* connection) {
+    initialize();
+
+    _server = new tcp_server(PORT, [](tcp_server::connection* connection) {
         // Handle request in its own thread
         thread([connection]() {
-            // Number of messages received
-            atomic<int> recvc = 0;
+            // Number of requests received
+            atomic<size_t> requestc = 0;
 
             // Set connection timeout
-            thread([&recvc, connection]() {
+            thread([&requestc, connection]() {
                 size_t timeout = http::timeout();
 
-                for (size_t i = 0; i < timeout && !recvc.load(); i++)
+                for (size_t i = 0; i < timeout && !requestc.load(); i++)
                     this_thread::sleep_for(chrono::milliseconds(1000));
 
-                if (recvc.load())
+                if (requestc.load())
                     return;
 
-                recvc.store(1);
+                requestc.store(1);
                 connection->close();
             }).detach();
 
-            
             // Wait for non-empty request
             while (true) {
                 try {
@@ -143,7 +168,7 @@ int main(int argc, const char* argv[]) {
                     if (request.empty())
                         continue;
 
-                    recvc.fetch_add(1);
+                    requestc.fetch_add(1);
 
                     auto handle_response = [connection](const string response) {
 #if LOGGING == LEVEL_DEBUG
@@ -157,30 +182,54 @@ int main(int argc, const char* argv[]) {
                         class request request_obj = parse_request(request);
 
                         if (request_obj.headers()["host"].str().length()) {
-                            log_request(request_obj);
+                            auto next = [&]() {
+                                log_request(request_obj);
 
-                            try {
-                                string response = handle_request(headers(), request_obj);
+                                try {
+                                    string response = handle_request(headers(), request_obj);
 
-                                handle_response(response);
+                                    handle_response(response);
 
-                                int last_id = recvc.load();
+                                    size_t request_id = requestc.load();
 
-                                if (last_id >= keep_alive_max()) {
+                                    if (request_id >= keep_alive_max()) {
+                                        connection->close();
+                                        
+                                        return true;
+                                    }
+
+                                    // Keep alive
+                                    thread([request_id, &requestc, connection]() {
+                                        for (int i = 0; i < keep_alive_timeout() && request_id == requestc.load(); i++)
+                                            this_thread::sleep_for(chrono::milliseconds(1000));
+
+                                        if (request_id == requestc.load())
+                                            connection->close();
+                                    }).detach();
+                                } catch (http::error& e) {
+                                    handle_response(response(e.status(), e.status_text(), e.text(), headers()));
+                                }
+                                
+                                return false;
+                            };
+
+                            std::string method = toupperstr(request_obj.method());
+                            
+                            if (method == "OPTIONS") {
+                                if (next())
+                                    break;
+                            } else {
+                                set<string> allow = ::allow();
+                                
+                                if (allow.find(method) == allow.end()) {
+                                    handle_response(response(400, "Bad Request", "", {
+                                        { "Connection", "close" }
+                                    }, false));
+
                                     connection->close();
                                     break;
-                                }
-
-                                // Keep alive
-                                thread([&recvc, last_id, connection]() {
-                                    for (int i = 0; i < keep_alive_timeout() && recvc.load() == last_id; i++) 
-                                        this_thread::sleep_for(chrono::milliseconds(1000));
-
-                                    if (recvc.load() == last_id)
-                                        connection->close();
-                                }).detach();
-                            } catch (http::error& e) {
-                                handle_response(response(e.status(), e.status_text(), e.text(), headers()));
+                                } else if (next())
+                                    break;
                             }
                         } else {
                             handle_response(response(400, "Bad Request", to_string(0), {
@@ -201,7 +250,7 @@ int main(int argc, const char* argv[]) {
                     }
                 } catch (mysocket::error& e) {
                     // Connection timed out; suppress error
-                    if (recvc.load())
+                    if (requestc.load())
                         return;
 
                     throw e;
