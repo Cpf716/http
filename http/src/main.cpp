@@ -142,17 +142,19 @@ void initialize() {
 
 // Perform garbage collection
 void onsignal(int signum) {
-    cout << endl;
-    cout << "Stop? (y/N) ";
+    thread([]() {
+        cout << endl;
+        cout << "Stop? (y/N) ";
 
-    string str;
+        string str;
 
-    getline(cin, str);
+        getline(cin, str);
 
-    if (tolowerstr(str) == "y") {
-        _server->close();
-        _alive.store(false);
-    }
+        if (tolowerstr(str) == "y") {
+            _server->close();
+            _alive.store(false);
+        }
+    }).detach();
 }
 
 int main(int argc, const char* argv[]) {
