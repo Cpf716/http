@@ -38,15 +38,16 @@ struct service {
 
 const size_t PORT = 8080;
 
-set<string> _allow = { "GET", "HEAD", "PUT", "PATCH", "POST", "DELETE" };
-header::map _headers = {
+atomic<bool> _alive = true;
+set<string>  _allow = { "GET", "HEAD", "PUT", "PATCH", "POST", "DELETE" };
+header::map  _headers = {
     { "Access-Control-Allow-Origin", "*" },
     { "Connection", "keep-alive" },
     { "Keep-Alive", "" }
 };
-mutex       _mutex;
-tcp_server* _server = NULL;
-service     _service;
+mutex        _mutex;
+tcp_server*  _server = NULL;
+service      _service;
 
 // Non-Member Functions
 
@@ -135,132 +136,167 @@ void log_request(class request request) {
 
 // Perform garbage collection
 void onsignal(int signum) {
-    _server->close();
+    cout << endl;
+    cout << "Stop? (y/N) ";
+
+    string str;
+
+    getline(cin, str);
+
+    if (tolowerstr(str) == "y") {
+        _server->close();
+        _alive.store(false);
+    }
 }
 
 int main(int argc, const char* argv[]) {
+    int port;
+
+    if (argc == 1)
+        port = PORT;
+    else {
+        port = parse_int(argv[1]);
+
+        if (port <= 3000)
+            port = PORT;
+    }   
+
     initialize();
 
-    _server = new tcp_server(PORT, [](tcp_server::connection* connection) {
-        // Handle request in its own thread
-        thread([connection]() {
-            // Number of requests received
-            atomic<size_t> requestc = 0;
+    while (true) {
+        try {
+            _server = new tcp_server(port, [](tcp_server::connection* connection) {
+                // Handle request in its own thread
+                thread([connection]() {
+                    // Number of requests received
+                    atomic<size_t> requestc = 0;
 
-            // Set connection timeout
-            thread([&requestc, connection]() {
-                size_t timeout = http::timeout();
+                    // Set connection timeout
+                    thread([&requestc, connection]() {
+                        size_t timeout = http::timeout();
 
-                for (size_t i = 0; i < timeout && !requestc.load(); i++)
-                    this_thread::sleep_for(chrono::milliseconds(1000));
+                        for (size_t i = 0; i < timeout && !requestc.load(); i++)
+                            this_thread::sleep_for(chrono::milliseconds(1000));
 
-                if (requestc.load())
-                    return;
+                        if (requestc.load())
+                            return;
 
-                requestc.store(1);
-                connection->close();
-            }).detach();
+                        requestc.store(1);
+                        connection->close();
+                    }).detach();
 
-            // Wait for non-empty request
-            while (true) {
-                try {
-                    string request = connection->recv();
+                    // Wait for non-empty request
+                    while (true) {
+                        try {
+                            string request = connection->recv();
 
-                    if (request.empty())
-                        continue;
+                            if (request.empty())
+                                continue;
 
-                    requestc.fetch_add(1);
+                            requestc.fetch_add(1);
 
-                    auto handle_response = [connection](const string response) {
+                            auto handle_response = [connection](const string response) {
 #if LOGGING == LEVEL_DEBUG
-                        cout << response << endl;
+                                cout << response << endl;
 #endif
 
-                        connection->send(response);
-                    };
-
-                    try {
-                        class request request_obj = parse_request(request);
-
-                        if (request_obj.headers()["host"].str().length()) {
-                            auto next = [&]() {
-                                try {
-                                    string response = handle_request(headers(), request_obj);
-
-                                    handle_response(response);
-
-                                    size_t request_id = requestc.load();
-
-                                    if (request_id >= keep_alive_max()) {
-                                        connection->close();
-                                        
-                                        return true;
-                                    }
-
-                                    // Keep alive
-                                    thread([request_id, &requestc, connection]() {
-                                        for (int i = 0; i < keep_alive_timeout() && request_id == requestc.load(); i++)
-                                            this_thread::sleep_for(chrono::milliseconds(1000));
-
-                                        if (request_id == requestc.load())
-                                            connection->close();
-                                    }).detach();
-                                } catch (http::error& e) {
-                                    handle_response(response(e.status(), e.status_text(), e.text(), headers()));
-                                }
-                                
-                                return false;
+                                connection->send(response);
                             };
 
-                            std::string method = toupperstr(request_obj.method());
-                            
-                            if (method == "OPTIONS") {
-                                if (next())
-                                    break;
-                            } else {
-                                set<string> allow = ::allow();
-                                
-                                if (allow.find(method) == allow.end())
-                                    throw http::error(400);
+                            try {
+                                class request request_obj = parse_request(request);
 
-                                log_request(request_obj);
+                                if (request_obj.headers()["host"].str().length()) {
+                                    auto next = [&]() {
+                                        try {
+                                            string response = handle_request(headers(), request_obj);
+
+                                            handle_response(response);
+
+                                            size_t request_id = requestc.load();
+
+                                            if (request_id >= keep_alive_max()) {
+                                                connection->close();
+                                                
+                                                return true;
+                                            }
+
+                                            // Keep alive
+                                            thread([request_id, &requestc, connection]() {
+                                                for (int i = 0; i < keep_alive_timeout() && request_id == requestc.load(); i++)
+                                                    this_thread::sleep_for(chrono::milliseconds(1000));
+
+                                                if (request_id == requestc.load())
+                                                    connection->close();
+                                            }).detach();
+                                        } catch (http::error& e) {
+                                            handle_response(response(e.status(), e.status_text(), e.text(), headers()));
+                                        }
+                                        
+                                        return false;
+                                    };
+
+                                    std::string method = toupperstr(request_obj.method());
                                     
-                                if (next())
+                                    if (method == "OPTIONS") {
+                                        if (next())
+                                            break;
+                                    } else {
+                                        set<string> allow = ::allow();
+                                        
+                                        if (allow.find(method) == allow.end())
+                                            throw http::error(400);
+
+                                        log_request(request_obj);
+                                            
+                                        if (next())
+                                            break;
+                                    }
+                                } else {
+                                    handle_response(response(400, "Bad Request", to_string(0), {
+                                        { "Connection", "close" },
+                                        { "Transfer-Encoding", "chunked "}
+                                    }));
+
+                                    connection->close();
                                     break;
+                                }
+                            } catch (http::error& e) {
+                                handle_response(response(400, "Bad Request", e.text(), {
+                                    { "Connection", "close" }
+                                }, false));
+                        
+                                connection->close();
+                                break;
                             }
-                        } else {
-                            handle_response(response(400, "Bad Request", to_string(0), {
-                                { "Connection", "close" },
-                                { "Transfer-Encoding", "chunked "}
-                            }));
+                        } catch (mysocket::error& e) {
+                            // Connection timed out; suppress error
+                            if (requestc.load())
+                                return;
 
-                            connection->close();
-                            break;
+                            throw e;
                         }
-                    } catch (http::error& e) {
-                        handle_response(response(400, "Bad Request", e.text(), {
-                            { "Connection", "close" }
-                        }, false));
-                
-                        connection->close();
-                        break;
                     }
-                } catch (mysocket::error& e) {
-                    // Connection timed out; suppress error
-                    if (requestc.load())
-                        return;
+                }).detach();
+            });
+            
+            signal(SIGINT, onsignal);
+            signal(SIGTERM, onsignal);
 
-                    throw e;
-                }
+            cout << "Server listening on port " << port << "...\n";
+
+            while (_alive.load())
+                continue;
+
+            break;
+        } catch (mysocket::error& e) {
+            // EADDRINUSE
+            if (e.errnum() == 48) {
+                port++;
+                continue;
             }
-        }).detach();
-    });
 
-    signal(SIGINT, onsignal);
-    signal(SIGTERM, onsignal);
-
-    cout << "Server listening on port " << PORT << "...\n";
-
-    while (true)
-        continue;
+            throw e;
+        }
+    }
 }
