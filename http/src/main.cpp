@@ -181,9 +181,7 @@ int main(int argc, const char* argv[]) {
 
                     // Set connection timeout
                     thread([&requestc, connection]() {
-                        size_t timeout = http::timeout();
-
-                        for (size_t i = 0; i < timeout && !requestc.load(); i++)
+                        for (size_t i = 0; i < http::timeout() && !requestc.load(); i++)
                             this_thread::sleep_for(chrono::milliseconds(1000));
 
                         if (requestc.load())
@@ -248,7 +246,7 @@ int main(int argc, const char* argv[]) {
                                     
                                     if (method == "OPTIONS") {
                                         if (next())
-                                            break;
+                                            return;
                                     } else {
                                         set<string> allow = ::allow();
                                         
@@ -256,7 +254,7 @@ int main(int argc, const char* argv[]) {
                                             throw http::error(400);
                                             
                                         if (next())
-                                            break;
+                                            return;
                                     }
                                 } else {
                                     handle_response(response(400, "Bad Request", to_string(0), {
@@ -264,16 +262,14 @@ int main(int argc, const char* argv[]) {
                                         { "Transfer-Encoding", "chunked "}
                                     }));
 
-                                    connection->close();
-                                    break;
+                                    return connection->close();
                                 }
                             } catch (http::error& e) {
                                 handle_response(response(400, "Bad Request", e.text(), {
                                     { "Connection", "close" }
                                 }, false));
                         
-                                connection->close();
-                                break;
+                                return connection->close();
                             }
                         } catch (mysocket::error& e) {
                             // Connection timed out; suppress error
