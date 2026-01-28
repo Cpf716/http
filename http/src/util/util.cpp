@@ -12,7 +12,6 @@
 bool is_int(const std::string value) {
     int i = 0;
     
-    // leading positive (+) or negative (-) sign
     if (i != value.length() && (value[i] == '+' || value[i] == '-'))
         i++;
     
@@ -222,7 +221,7 @@ std::string tolowerstr(std::string string) {
     return string;
 }
 
-std::string toupperstr(const std::string string) {
+std::string toupperstr(std::string string) {
     std::transform(string.begin(), string.end(), string.begin(), ::toupper);
 
     return string;
