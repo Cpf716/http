@@ -165,6 +165,19 @@ bool url::param::operator!=(const std::string value) {
 
 // Member Functions
 
+std::string url::_query(std::ostringstream& oss) {
+    size_t               index = 0;
+    param::map::iterator it = this->params().begin();
+
+    for (; index < this->params().size() - 1 && it != this->params().end(); index++, it++)
+        oss << (* it).first << "=" << (* it).second.str() << "&";
+
+
+    oss << (* it).first << "=" << (* it).second.str();
+        
+    return oss.str();
+}
+
 std::string& url::host() {
     return this->_host;
 }
@@ -248,13 +261,7 @@ std::string url::str() {
     if (this->params().size()) {
         oss << "?";
 
-        size_t               index = 0;
-        param::map::iterator it = this->params().begin();
-
-        for (; index < this->params().size() - 1 && it != this->params().end(); index++, it++)
-            oss << (* it).first << "=" << (* it).second.str() << "&";
-
-        oss << (* it).first << "=" << (* it).second.str();
+        this->_query(oss);
     }
 
     return oss.str();
