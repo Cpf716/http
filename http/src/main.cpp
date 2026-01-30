@@ -26,11 +26,9 @@ struct service {
     }
 
     string ping(header::map headers) {
-        string body = "Hello, world!";
-
         headers["Content-Type"] = string("text/plain; charset=utf-8");
 
-        return response(body, headers);
+        return response("Hello, world!", headers);
     }
 };
 
@@ -100,30 +98,39 @@ string handle_request(header::map headers, class request request) {
         throw http::error(404, "Cannot " + toupperstr(request.method()) + " " + request.url());
         return "";
     };
-
-    if (request.url() == "/ping") {
-        if (request.method() == "options")
-            return options(headers);
-
-        if (request.method() == "get") {
-            log_request(request);
-            
-            return _service.ping(headers);
-        }
-
-        return not_found();
-    }
     
-    if (request.url() == "/greeting") {
-        if (request.method() == "options")
-            return options(headers);
+    string url = request.url(),
+           prefix = "/api";
+    
+    if (starts_with(url, prefix)) {
+        url = url.substr(prefix.length());
+        
+        if (url == "/ping") {
+            if (request.method() == "options")
+                return options(headers);
 
-        if (request.method() == "post") {
-            log_request(request);
+            if (request.method() == "get") {
+                log_request(request);
+                
+                return _service.ping(headers);
+            }
 
-            return _service.greeting(headers, request);
+            return not_found();
         }
+        
+        if (url == "/greeting") {
+            if (request.method() == "options")
+                return options(headers);
 
+            if (request.method() == "post") {
+                log_request(request);
+
+                return _service.greeting(headers, request);
+            }
+
+            return not_found();
+        }
+        
         return not_found();
     }
 
@@ -177,17 +184,17 @@ int main(int argc, const char* argv[]) {
                 // Handle request in its own thread
                 thread([connection]() {
                     // Number of requests received
-                    atomic<size_t> requestc = 0;
+                    atomic<size_t> nrequests = 0;
 
                     // Set connection timeout
-                    thread([&requestc, connection]() {
-                        for (size_t i = 0; i < http::timeout() && !requestc.load(); i++)
+                    thread([&nrequests, connection]() {
+                        for (size_t i = 0; i < http::timeout() && !nrequests.load(); i++)
                             this_thread::sleep_for(chrono::milliseconds(1000));
 
-                        if (requestc.load())
+                        if (nrequests.load())
                             return;
 
-                        requestc.store(1);
+                        nrequests.store(1);
                         connection->close();
                     }).detach();
 
@@ -199,7 +206,7 @@ int main(int argc, const char* argv[]) {
                             if (request.empty())
                                 continue;
 
-                            requestc.fetch_add(1);
+                            nrequests.fetch_add(1);
 
                             auto handle_response = [connection](const string response) {
 #if LOGGING == LEVEL_DEBUG
@@ -219,20 +226,20 @@ int main(int argc, const char* argv[]) {
 
                                             handle_response(response);
 
-                                            size_t request_id = requestc.load();
+                                            size_t nrequest = nrequests.load();
 
-                                            if (request_id >= keep_alive_max()) {
+                                            if (nrequest >= keep_alive_max()) {
                                                 connection->close();
                                                 
                                                 return true;
                                             }
 
                                             // Keep alive
-                                            thread([request_id, &requestc, connection]() {
-                                                for (int i = 0; i < keep_alive_timeout() && request_id == requestc.load(); i++)
+                                            thread([nrequest, &nrequests, connection]() {
+                                                for (int i = 0; i < keep_alive_timeout() && nrequest == nrequests.load(); i++)
                                                     this_thread::sleep_for(chrono::milliseconds(1000));
 
-                                                if (request_id == requestc.load())
+                                                if (nrequest == nrequests.load())
                                                     connection->close();
                                             }).detach();
                                         } catch (http::error& e) {
@@ -273,7 +280,7 @@ int main(int argc, const char* argv[]) {
                             }
                         } catch (mysocket::error& e) {
                             // Connection timed out; suppress error
-                            if (requestc.load())
+                            if (nrequests.load())
                                 return;
 
                             throw e;

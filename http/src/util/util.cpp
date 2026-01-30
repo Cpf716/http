@@ -181,6 +181,15 @@ void split(std::vector<std::string>& target, const std::string source, const std
     target.push_back(source.substr(start));
 }
 
+bool starts_with(const std::string text, const std::string pattern) {
+    int i = 0;
+    
+    while (i < text.length() && i < pattern.length() && text[i] == pattern[i])
+        i++;
+    
+    return i == pattern.length();
+}
+
 std::vector<std::string> tokens(const std::string string) {
     std::vector<std::string> result;
 

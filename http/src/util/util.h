@@ -33,6 +33,8 @@ std::vector<std::string> split(const std::string string, const std::string delim
 
 void                     split(std::vector<std::string>& target, const std::string source, const std::string delimeter);
 
+bool                     starts_with(const std::string text, const std::string pattern);
+
 std::vector<std::string> tokens(const std::string string);
 
 void                     tokens(std::vector<std::string>& target, const std::string source);
