@@ -61,7 +61,7 @@ url::url() {
 url::url(const std::string value) {
     int start = 0;
 
-    while (start < (int)value.length() - 1 && (value[start] != '/' || value[start + 1] != '/'))
+    while (start < (int) value.length() - 1 && (value[start] != '/' || value[start + 1] != '/'))
         start++;
 
     if (start == value.length() - 1)
@@ -82,9 +82,9 @@ url::url(const std::string value) {
 
     this->_host = host[0];
 
-    if (host.size() == 1) {
+    if (host.size() == 1)
         this->port() = portinfo(protocols()[this->protocol()], false);
-    } else
+    else
         this->port() = portinfo(parse_int(host[1]), true);
 
     std::vector<std::string> target = split(value.substr(end), "?");
@@ -98,9 +98,9 @@ url::url(const std::string value) {
         std::vector<std::string> query = split(target[1], "&");
 
         for (std::string param: query) {
-            std::vector<std::string> kvp = split(param, "=");
+            std::vector<std::string> tokens = split(param, "=");
             
-            this->_params[kvp[0]] = kvp.size() == 1 ? "" : kvp[1];
+            this->_params[tokens[0]] = tokens.size() == 1 ? "" : tokens[1];
         }
     }
 }
@@ -161,6 +161,10 @@ bool url::param::operator!=(const double value) {
 
 bool url::param::operator!=(const std::string value) {
     return !(*this == value);
+}
+
+url::portinfo::operator int() {
+    return this->value();
 }
 
 // Member Functions
